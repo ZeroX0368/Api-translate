@@ -1,5 +1,6 @@
 
 from flask import Flask, request, jsonify
+from deep_translator import GoogleTranslator
 import time
 import random
 
@@ -38,39 +39,38 @@ GOOGLE_TRANSLATE = {
 }
 
 def translate_with_retry(input_text, output_code, max_retries=3):
-    """Translate with retry logic and better error handling"""
+    """Translate with retry logic using deep-translator"""
     
     for attempt in range(max_retries):
         try:
-            # Import googletrans each time to avoid connection issues
-            from googletrans import Translator
-            
-            # Create a new translator instance for each request
-            translator = Translator()
-            
             # Add small delay between retries
             if attempt > 0:
                 time.sleep(random.uniform(0.5, 1.5))
             
-            result = translator.translate(input_text, dest=output_code)
+            # Use GoogleTranslator from deep-translator
+            translator = GoogleTranslator(source='auto', target=output_code)
+            translated_text = translator.translate(input_text)
             
-            # Verify the result has the expected attributes
-            if not hasattr(result, 'text') or not hasattr(result, 'src'):
-                raise Exception("Invalid translation result format")
-            
-            # Check if result.text is empty or None
-            if not result.text or result.text.strip() == '':
+            # Verify the result
+            if not translated_text or translated_text.strip() == '':
                 raise Exception("Empty translation result")
+            
+            # Detect source language for better response
+            try:
+                detector = GoogleTranslator(source='auto', target='en')
+                detected_lang = detector.detect(input_text)
+            except:
+                detected_lang = 'auto'
             
             return {
                 'success': True,
                 'original_text': input_text,
-                'translated_text': result.text,
-                'input_language': GOOGLE_TRANSLATE.get(result.src, result.src),
-                'input_code': result.src,
+                'translated_text': translated_text,
+                'input_language': GOOGLE_TRANSLATE.get(detected_lang, 'Auto-detected'),
+                'input_code': detected_lang,
                 'output_language': GOOGLE_TRANSLATE.get(output_code, output_code),
                 'output_code': output_code,
-                'translation_info': f"{GOOGLE_TRANSLATE.get(result.src, result.src)} ({result.src}) → {GOOGLE_TRANSLATE.get(output_code, output_code)} ({output_code})"
+                'translation_info': f"{GOOGLE_TRANSLATE.get(detected_lang, 'Auto-detected')} ({detected_lang}) → {GOOGLE_TRANSLATE.get(output_code, output_code)} ({output_code})"
             }
             
         except Exception as e:
@@ -167,13 +167,13 @@ def status():
     """API status endpoint"""
     return jsonify({
         'status': 'online',
-        'version': '1.0.1',
+        'version': '1.0.2',
         'features': [
-            'Text translation with retry logic',
+            'Text translation with deep-translator',
             'Language detection',
             'Multiple endpoints',
             'Language search',
-            'Better error handling'
+            'Improved reliability'
         ],
         'supported_languages_count': len(GOOGLE_TRANSLATE)
     })
@@ -213,7 +213,7 @@ def home():
             <li>✅ Multiple endpoint formats</li>
             <li>✅ Language search functionality</li>
             <li>✅ Detailed error messages</li>
-            <li>✅ Retry logic for reliability</li>
+            <li>✅ Stable deep-translator library</li>
         </ul>
 
         <h2>🔧 Parameters</h2>
