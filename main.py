@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 from googletrans import Translator, LANGUAGES
 
@@ -39,20 +38,33 @@ GOOGLE_TRANSLATE = {
 
 def get_translation_result(input_text, output_code):
     """Get translation result"""
-    
+
     if output_code not in GOOGLE_TRANSLATE:
         return {
             'error': 'Invalid translation code',
             'message': 'Visit https://cloud.google.com/translate/docs/languages for supported codes',
             'supported_languages': list(GOOGLE_TRANSLATE.keys())
         }
-    
+
     if not input_text or input_text.strip() == '':
         return {'error': 'Please provide valid translation text'}
-    
+
     try:
-        result = translator.translate(input_text, dest=output_code)
+        # Create a fresh translator instance to avoid caching issues
+        fresh_translator = Translator()
+        result = fresh_translator.translate(input_text, dest=output_code)
         
+        # Handle potential async/coroutine issues
+        if hasattr(result, '__await__'):
+            # If it's a coroutine, we need to handle it differently
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(result)
+
         return {
             'success': True,
             'original_text': input_text,
@@ -63,7 +75,7 @@ def get_translation_result(input_text, output_code):
             'output_code': output_code,
             'translation_info': f"{GOOGLE_TRANSLATE.get(result.src, result.src)} ({result.src}) → {GOOGLE_TRANSLATE.get(output_code, output_code)} ({output_code})"
         }
-    
+
     except Exception as e:
         return {'error': f'Translation failed: {str(e)}'}
 
@@ -72,25 +84,37 @@ def translate_endpoint():
     """Main translation endpoint"""
     output_code = request.args.get('to', request.args.get('language', 'vi'))
     input_text = request.args.get('text', request.args.get('message', ''))
-    
+
     result = get_translation_result(input_text, output_code)
-    
+
     if 'error' in result:
         return jsonify(result), 400
-    
-    return jsonify(result)
+
+    # Configure JSON to display Vietnamese characters properly
+    response = app.response_class(
+        response=app.json.dumps(result, ensure_ascii=False, indent=2),
+        status=200,
+        mimetype='application/json; charset=utf-8'
+    )
+    return response
 
 @app.route('/translate/<output_code>')
 def translate_with_path(output_code):
     """Alternative endpoint with language code in path"""
     input_text = request.args.get('text', request.args.get('message', ''))
-    
+
     result = get_translation_result(input_text, output_code)
-    
+
     if 'error' in result:
         return jsonify(result), 400
-    
-    return jsonify(result)
+
+    # Configure JSON to display Vietnamese characters properly
+    response = app.response_class(
+        response=app.json.dumps(result, ensure_ascii=False, indent=2),
+        status=200,
+        mimetype='application/json; charset=utf-8'
+    )
+    return response
 
 @app.route('/languages')
 def get_languages():
@@ -105,11 +129,11 @@ def search_languages(search):
     """Search for languages by name or code"""
     search = search.lower()
     results = {}
-    
+
     for code, name in GOOGLE_TRANSLATE.items():
         if search in code.lower() or search in name.lower():
             results[code] = name
-    
+
     return jsonify({
         'search_term': search,
         'results': results,
@@ -136,21 +160,21 @@ def home():
     return '''
     <h1>🌐 Translation API Service</h1>
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
-        
+
         <h2>📚 API Endpoints</h2>
-        
+
         <h3>🔤 Translate Text</h3>
         <p><strong>GET</strong> <code>/translate?to=vi&text=hello</code></p>
         <p><strong>GET</strong> <code>/translate/vi?text=hello</code></p>
         <p>Aliases: <code>language</code> for <code>to</code>, <code>message</code> for <code>text</code></p>
-        
+
         <h3>🌍 Get Languages</h3>
         <p><strong>GET</strong> <a href="/languages">/languages</a> - All supported languages</p>
         <p><strong>GET</strong> <a href="/languages/spanish">/languages/spanish</a> - Search languages</p>
-        
+
         <h3>📊 API Status</h3>
         <p><strong>GET</strong> <a href="/status">/status</a> - API information</p>
-        
+
         <h2>🚀 Examples</h2>
         <ul>
             <li><a href="/translate?to=vi&text=hello">/translate?to=vi&text=hello</a> (Vietnamese)</li>
@@ -158,7 +182,7 @@ def home():
             <li><a href="/translate/fr?text=thank you">/translate/fr?text=thank you</a> (French)</li>
             <li><a href="/translate?to=ja&text=how are you">/translate?to=ja&text=how are you</a> (Japanese)</li>
         </ul>
-        
+
         <h2>⚡ Features</h2>
         <ul>
             <li>✅ 100+ supported languages</li>
@@ -167,13 +191,13 @@ def home():
             <li>✅ Language search functionality</li>
             <li>✅ Detailed error messages</li>
         </ul>
-        
+
         <h2>🔧 Parameters</h2>
         <ul>
             <li><code>to</code> or <code>language</code>: Target language code (e.g., 'vi', 'es', 'fr')</li>
             <li><code>text</code> or <code>message</code>: Text to translate</li>
         </ul>
-        
+
         <p>📋 <a href="/languages">View all supported language codes</a></p>
     </div>
     '''
