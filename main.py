@@ -1,8 +1,9 @@
+
 from flask import Flask, request, jsonify
-from googletrans import Translator, LANGUAGES
+import time
+import random
 
 app = Flask(__name__)
-translator = Translator()
 
 # Google Translate language codes mapping
 GOOGLE_TRANSLATE = {
@@ -36,6 +37,55 @@ GOOGLE_TRANSLATE = {
     'xh': 'Xhosa', 'yi': 'Yiddish', 'yo': 'Yoruba', 'zu': 'Zulu'
 }
 
+def translate_with_retry(input_text, output_code, max_retries=3):
+    """Translate with retry logic and better error handling"""
+    
+    for attempt in range(max_retries):
+        try:
+            # Import googletrans each time to avoid connection issues
+            from googletrans import Translator
+            
+            # Create a new translator instance for each request
+            translator = Translator()
+            
+            # Add small delay between retries
+            if attempt > 0:
+                time.sleep(random.uniform(0.5, 1.5))
+            
+            result = translator.translate(input_text, dest=output_code)
+            
+            # Verify the result has the expected attributes
+            if not hasattr(result, 'text') or not hasattr(result, 'src'):
+                raise Exception("Invalid translation result format")
+            
+            # Check if result.text is empty or None
+            if not result.text or result.text.strip() == '':
+                raise Exception("Empty translation result")
+            
+            return {
+                'success': True,
+                'original_text': input_text,
+                'translated_text': result.text,
+                'input_language': GOOGLE_TRANSLATE.get(result.src, result.src),
+                'input_code': result.src,
+                'output_language': GOOGLE_TRANSLATE.get(output_code, output_code),
+                'output_code': output_code,
+                'translation_info': f"{GOOGLE_TRANSLATE.get(result.src, result.src)} ({result.src}) → {GOOGLE_TRANSLATE.get(output_code, output_code)} ({output_code})"
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Translation attempt {attempt + 1} failed: {error_msg}")
+            
+            if attempt == max_retries - 1:
+                return {
+                    'error': f'Translation failed after {max_retries} attempts',
+                    'details': error_msg,
+                    'troubleshooting': 'Try again in a few moments or check your internet connection'
+                }
+    
+    return {'error': 'Unexpected error in translation service'}
+
 def get_translation_result(input_text, output_code):
     """Get translation result"""
 
@@ -49,35 +99,7 @@ def get_translation_result(input_text, output_code):
     if not input_text or input_text.strip() == '':
         return {'error': 'Please provide valid translation text'}
 
-    try:
-        # Create a fresh translator instance to avoid caching issues
-        fresh_translator = Translator()
-        result = fresh_translator.translate(input_text, dest=output_code)
-        
-        # Handle potential async/coroutine issues
-        if hasattr(result, '__await__'):
-            # If it's a coroutine, we need to handle it differently
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(result)
-
-        return {
-            'success': True,
-            'original_text': input_text,
-            'translated_text': result.text,
-            'input_language': GOOGLE_TRANSLATE.get(result.src, result.src),
-            'input_code': result.src,
-            'output_language': GOOGLE_TRANSLATE.get(output_code, output_code),
-            'output_code': output_code,
-            'translation_info': f"{GOOGLE_TRANSLATE.get(result.src, result.src)} ({result.src}) → {GOOGLE_TRANSLATE.get(output_code, output_code)} ({output_code})"
-        }
-
-    except Exception as e:
-        return {'error': f'Translation failed: {str(e)}'}
+    return translate_with_retry(input_text, output_code)
 
 @app.route('/translate')
 def translate_endpoint():
@@ -145,12 +167,13 @@ def status():
     """API status endpoint"""
     return jsonify({
         'status': 'online',
-        'version': '1.0.0',
+        'version': '1.0.1',
         'features': [
-            'Text translation',
+            'Text translation with retry logic',
             'Language detection',
             'Multiple endpoints',
-            'Language search'
+            'Language search',
+            'Better error handling'
         ],
         'supported_languages_count': len(GOOGLE_TRANSLATE)
     })
@@ -190,6 +213,7 @@ def home():
             <li>✅ Multiple endpoint formats</li>
             <li>✅ Language search functionality</li>
             <li>✅ Detailed error messages</li>
+            <li>✅ Retry logic for reliability</li>
         </ul>
 
         <h2>🔧 Parameters</h2>
@@ -203,4 +227,7 @@ def home():
     '''
 
 if __name__ == '__main__':
+    print("🌐 Starting Translation API Service...")
+    print("📡 Server will be available at http://0.0.0.0:5000")
+    print("🔗 Try: /translate?to=vi&text=hello")
     app.run(host='0.0.0.0', port=5000, debug=True)
